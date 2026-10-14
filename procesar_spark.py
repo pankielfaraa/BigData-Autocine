@@ -1,8 +1,8 @@
-
 from pyspark.sql import SparkSession
 from urllib.parse import quote_plus
+from pyspark.sql.functions import count, sum
 
-# 1. Configurar la conexión con MongoDB Atlas
+# 1. Configurar la conexion con MongoDB Atlas
 usuario = "difertota_db_user"
 password = quote_plus("AutoCine2026Fernando123")
 
@@ -11,16 +11,15 @@ URL_MONGO = (
     "@cluster0.jprrr6g.mongodb.net/autocine_bigdata"
 )
 
-# 2. Iniciar Spark con la conexión a MongoDB
+# 2. Iniciar Spark
 spark = SparkSession.builder \
     .appName("Autocine Big Data") \
-    .master("local[*]") \
     .config("spark.mongodb.read.connection.uri", URL_MONGO) \
     .getOrCreate()
 
 print("Spark iniciado correctamente")
 
-# 3. Leer directamente las colecciones de MongoDB
+# 3. Leer las colecciones de MongoDB
 clientes = spark.read.format("mongodb") \
     .option("database", "autocine_bigdata") \
     .option("collection", "clientes") \
@@ -41,7 +40,7 @@ entradas = spark.read.format("mongodb") \
     .option("collection", "entradas") \
     .load()
 
-# 4. Mostrar los datos usando DataFrames
+# 4. Mostrar los datos con DataFrames
 print("\n=== CLIENTES ===")
 clientes.show(5, truncate=False)
 
@@ -54,18 +53,21 @@ funciones.show(5, truncate=False)
 print("\n=== ENTRADAS ===")
 entradas.show(5, truncate=False)
 
-# 5. Mostrar la estructura de las películas
+# 5. Mostrar la estructura de los datos
 print("\n=== ESTRUCTURA DE PELICULAS ===")
 peliculas.printSchema()
 
-# 6. Procesar las películas mediante RDD
-print("\n=== RDD DE PELICULAS ===")
-rdd = peliculas.rdd
+print("\n=== ESTRUCTURA DE ENTRADAS ===")
+entradas.printSchema()
 
-for fila in rdd.take(5):
-    print(fila)
+# 6. Procesar datos usando RDD
+print("\n=== PROCESAMIENTO CON RDD ===")
+rdd_peliculas = peliculas.rdd
 
-# 7. Analizar las películas con Spark SQL
+for pelicula in rdd_peliculas.take(5):
+    print(pelicula)
+
+# 7. Analizar peliculas con Spark SQL
 print("\n=== PELICULAS POR GENERO ===")
 peliculas.createOrReplaceTempView("peliculas")
 
@@ -78,17 +80,7 @@ resultado = spark.sql("""
 
 resultado.show()
 
-# 8. Analizar las entradas vendidas
-print("\n=== ENTRADAS REGISTRADAS ===")
-entradas.groupBy().count().show()
-
-# Mostrar la estructura de las entradas
-print("\n=== ESTRUCTURA DE ENTRADAS ===")
-entradas.printSchema()
-
-# 9. Calcular entradas vendidas e ingresos por función
-from pyspark.sql.functions import count, sum
-
+# 8. Calcular ventas e ingresos por funcion
 print("\n=== VENTAS E INGRESOS POR FUNCION ===")
 
 entradas.groupBy("id_funcion").agg(
@@ -96,8 +88,88 @@ entradas.groupBy("id_funcion").agg(
     sum("precio").alias("ingreso_total")
 ).orderBy("id_funcion").show()
 
+# 9. Relacionar funciones con peliculas
+# Estos IDs deben coincidir con los datos originales.
+lista_peliculas = [
+    (1, "Jurassic World"),
+    (2, "El Conjuro"),
+    (3, "Super Mario Bros"),
+    (4, "Avengers: Endgame"),
+    (5, "Coco"),
+    (6, "Interstellar"),
+    (7, "Toy Story 4"),
+    (8, "Spider-Man: No Way Home"),
+    (9, "Batman"),
+    (10, "Joker")
+]
 
-# 10. Cerrar Spark
+peliculas_con_id = spark.createDataFrame(
+    lista_peliculas,
+    ["id_pelicula", "pelicula"]
+)
+
+print("\n=== FUNCIONES CON SUS PELICULAS ===")
+
+funciones.join(
+    peliculas_con_id,
+    "id_pelicula",
+    "left"
+).select(
+    "id_funcion",
+    "id_pelicula",
+    "pelicula",
+    "fecha",
+    "hora"
+).orderBy("id_funcion").show(truncate=False)
+
+# 10. Generar el reporte completo de ventas
+# Los IDs de clientes son una asociacion manual.
+lista_clientes = [
+    (1, "Fernando Velasquez"),
+    (2, "Daniela Silva"),
+    (3, "Valeria Rojas"),
+    (4, "Maria Lopez"),
+    (5, "Andrea Torres"),
+    (6, "Jorge Perez"),
+    (7, "Carlos Ramirez"),
+    (8, "Luis Mendoza"),
+    (9, "Sofia Castro"),
+    (10, "Diego Flores")
+]
+
+clientes_con_id = spark.createDataFrame(
+    lista_clientes,
+    ["id_cliente", "cliente"]
+)
+
+reporte_ventas = (
+    entradas
+    .join(clientes_con_id, "id_cliente", "left")
+    .join(
+        funciones.select(
+            "id_funcion",
+            "id_pelicula",
+            "fecha",
+            "hora"
+        ),
+        "id_funcion",
+        "left"
+    )
+    .join(peliculas_con_id, "id_pelicula", "left")
+    .select(
+        "id_entrada",
+        "cliente",
+        "pelicula",
+        "fecha",
+        "hora",
+        "precio"
+    )
+    .orderBy("id_entrada")
+)
+
+print("\n=== REPORTE COMPLETO DE VENTAS ===")
+reporte_ventas.show(20, truncate=False)
+
+# 11. Cerrar Spark
 spark.stop()
-
-
+print("Procesamiento finalizado")
